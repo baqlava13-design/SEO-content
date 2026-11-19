@@ -39,3 +39,10 @@ Get a Serper API key at https://serper.dev/ . One new keyword typically uses **o
 - Tasks are in server memory and are lost on restart; completed briefs and SQLite cache persist on the volume.
 - The API currently allows concurrent analysis requests and is not rate limited; for a public deployment add authentication, rate limits, and a job queue before sharing the URL.
 - Generated Markdown can be copied into your CMS or content workflow; this dashboard does not publish directly to GitHub or your website.
+
+
+## Reliability patch (2026-11-19)
+- Competitor HTML is stripped of style/script and navigation elements before jsdom Readability parsing, preventing noisy third-party stylesheet parsing errors.
+- Up to three competitor pages are fetched concurrently; failures are recorded per page.
+- Brief generation logs each stage and failures, and the browser stops waiting after four minutes.
+- The backend task is held in memory; restarting Railway loses in-flight task IDs.
