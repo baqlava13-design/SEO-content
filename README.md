@@ -46,3 +46,7 @@ Get a Serper API key at https://serper.dev/ . One new keyword typically uses **o
 - Up to three competitor pages are fetched concurrently; failures are recorded per page.
 - Brief generation logs each stage and failures, and the browser stops waiting after four minutes.
 - The backend task is held in memory; restarting Railway loses in-flight task IDs.
+
+## V2 topical authority workflow
+
+Open **Topical Growth** in the sidebar. Enter a website, seed keywords, target market, and verified business facts. Generate a proposed topical map (12–20 pages), inspect its menu and cluster structure, select a page, and generate a complete Markdown draft. Export the map as JSON or drafts as Markdown. Projects persist under `$DATA_DIR/growth-projects` on the Railway volume. This is an AI-generated *proposal*, not an audited site crawl or measured search-volume analysis. Review page duplication, facts, and intent before publishing. The current MVP generates pages one at a time; it does not auto-publish or translate.
