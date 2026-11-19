@@ -50,3 +50,37 @@ Get a Serper API key at https://serper.dev/ . One new keyword typically uses **o
 ## V2 topical authority workflow
 
 Open **Topical Growth** in the sidebar. Enter a website, seed keywords, target market, and verified business facts. Generate a proposed topical map (12–20 pages), inspect its menu and cluster structure, select a page, and generate a complete Markdown draft. Export the map as JSON or drafts as Markdown. Projects persist under `$DATA_DIR/growth-projects` on the Railway volume. This is an AI-generated *proposal*, not an audited site crawl or measured search-volume analysis. Review page duplication, facts, and intent before publishing. The current MVP generates pages one at a time; it does not auto-publish or translate.
+
+## V3: SEO + AEO + GEO research and Google integrations
+
+This update retains V2 projects, SERP briefs, and Railway DATA_DIR persistence. In Topical Growth, select a page, click **Research competitors & AEO questions**, review the measured benchmark, and then generate its full page. Research uses the existing cached Serper results and cached page extraction; it also requests People Also Ask questions. This is a real SERP benchmark, **not** an AI-search citation-frequency measurement. Content can be edited and must have recorded human review notes before approval.
+
+### Google integration (optional)
+
+Set Railway environment variables:
+
+- `PUBLIC_API_URL=https://your-backend.up.railway.app` (exact backend origin)
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (Google Cloud OAuth Web application)
+- `ADMIN_API_KEY` (strong private secret; enter it in the Topical Growth Google integration field when using Google data)
+- Optional Keyword Planner: `GOOGLE_ADS_DEVELOPER_TOKEN`, `GOOGLE_ADS_CUSTOMER_ID`; optionally `GOOGLE_ADS_LOGIN_CUSTOMER_ID`, `GOOGLE_ADS_API_VERSION` (default `v22`)
+
+Configure the OAuth redirect URI in Google Cloud as `PUBLIC_API_URL/api/google/callback`. Enable the Search Console API and Google Ads API. Connect Google from the UI and grant access to the desired property/account. The Google Ads API requires its own access approvals; keyword estimates may be unavailable without an eligible Ads account. Search Console property must exactly match the project's URL, or use the verified `sc-domain:example.com` property if necessary. The current UI defaults to the project's website URL.
+
+Google OAuth tokens are stored in `DATA_DIR/google-oauth-tokens.json` on the persistent Railway volume. **Use a private backend**: V2's other project endpoints are not authenticated. Google data endpoints require `ADMIN_API_KEY`, but existing project content endpoints remain unchanged. Do not share the admin key or expose the app to untrusted users. For multiuser production, implement full user authentication, token encryption at rest, and per-user permissions.
+
+### Cost discipline
+
+- SERP results and extracted pages reuse the existing SQLite cache.
+- Benchmark only selected high-priority pages first; do not research all 20 pages automatically.
+- Reuse one competitor research result across writing and draft diagnostics.
+- Google Search Console is generally free within quota. Keyword Planner is optional; Google Ads eligibility applies.
+- No backlink subscription or invented domain-authority scores.
+- AI outputs require expert fact checking. AEO/GEO opportunities do not guarantee citations or rankings.
+
+### Validation
+
+`node --check src/server.js && node --check src/growth.js && node --check src/intelligence.js && npm test && npm run build`
+
+
+## Railway-only deployment
+See [RAILWAY_ONLY_DEPLOY.md](RAILWAY_ONLY_DEPLOY.md). The React frontend and Express API run on one Railway service; Vercel is not required.
