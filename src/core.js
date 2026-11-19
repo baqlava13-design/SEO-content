@@ -42,7 +42,8 @@ export function extract(html,url) {
   let title=$('title').first().text().trim();
   let body='';
   try {
-    const dom=new JSDOM(html,{url});
+    // Readability needs the DOM structure, not third-party CSS. Strip styles before jsdom parses it.
+    const dom=new JSDOM($.html(),{url});
     const article=new Readability(dom.window.document).parse();
     title=article?.title||title;
     body=article?.textContent||'';

@@ -20,7 +20,32 @@ app.get('/api/health',(_req,res)=>res.json({ok:true}));
 app.post('/api/brief',async(req,res)=>{
  let keyword;try{keyword=cleanKeyword(req.body?.keyword)}catch(e){return res.status(400).json({error:e.message})}
  const id=crypto.randomUUID();const task={id,status:'running',step:'Starting SERP analysis',keyword};tasks.set(id,task);res.status(202).json({id});
- (async()=>{let db;try{db=dbOpen();const results=await serp(db,keyword);const pages=[];for(let i=0;i<results.length;i++){task.step=`Reading competitor ${i+1}/${results.length}`;const r=results[i];const extracted=await page(db,r.url);pages.push({...extracted,url:r.url,title:extracted.title||r.title})}task.step='Calculating competitor statistics';const stats=analyze(pages);task.step='Generating AI brief';const plan=await generateBrief(keyword,stats,pages);const date=new Date().toISOString().slice(0,10);const filename=`${slug(keyword)}-${date}.md`;const markdown=renderBrief(keyword,stats,plan,pages,date);writeFileSync(join('briefs',filename),markdown);Object.assign(task,{status:'complete',step:'Complete',filename,markdown,stats:{analyzed:stats.analyzed,failed:stats.failed,medianWordCount:stats.medianWordCount,terms:stats.terms,recurring:stats.recurring},pages:pages.map(p=>({url:p.url,title:p.title,error:p.error,wordCount:p.wordCount}))})}catch(e){Object.assign(task,{status:'error',step:'Failed',error:e.message})}finally{db?.close()}})();
+ (async()=>{let db;try{
+  db=dbOpen();
+  console.log(`[${id}] SERP lookup: ${keyword}`);
+  const results=await serp(db,keyword);
+  const pages=new Array(results.length);
+  let completed=0;
+  // Bounded concurrency prevents a single slow competitor from blocking all others.
+  const worker=async()=>{while(true){const i=cursor++;if(i>=results.length)return;const r=results[i];
+    const extracted=await page(db,r.url);
+    pages[i]={...extracted,url:r.url,title:extracted.title||r.title};
+    completed++;task.step=`Reading competitors ${completed}/${results.length}`;
+    console.log(`[${id}] Competitor ${completed}/${results.length}: ${extracted.error?'failed ('+extracted.error+')':'extracted'} ${r.url}`);
+  }};
+  let cursor=0;
+  await Promise.all(Array.from({length:Math.min(3,results.length)},()=>worker()));
+  task.step='Calculating competitor statistics';
+  const stats=analyze(pages);
+  task.step='Generating AI brief';console.log(`[${id}] Generating AI brief from ${stats.analyzed} pages`);
+  const plan=await generateBrief(keyword,stats,pages);
+  const date=new Date().toISOString().slice(0,10);
+  const filename=`${slug(keyword)}-${date}.md`;
+  const markdown=renderBrief(keyword,stats,plan,pages,date);
+  writeFileSync(join('briefs',filename),markdown);
+  Object.assign(task,{status:'complete',step:'Complete',filename,markdown,stats:{analyzed:stats.analyzed,failed:stats.failed,medianWordCount:stats.medianWordCount,terms:stats.terms,recurring:stats.recurring},pages:pages.map(p=>({url:p.url,title:p.title,error:p.error,wordCount:p.wordCount}))});
+  console.log(`[${id}] Brief complete: ${filename}`);
+ }catch(e){console.error(`[${id}] Brief failed:`,e);Object.assign(task,{status:'error',step:'Failed',error:e.message})}finally{db?.close()}})();
 });
 app.get('/api/tasks/:id',(req,res)=>{const task=tasks.get(req.params.id);if(!task)return res.status(404).json({error:'Task not found'});res.json(task)});
 app.get('/api/brief',(req,res)=>{try{const keyword=cleanKeyword(req.query.keyword);res.json(findBrief(keyword))}catch(e){res.status(404).json({error:e.message})}});
