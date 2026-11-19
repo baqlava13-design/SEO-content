@@ -2,7 +2,9 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { mkdirSync, writeFileSync, readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {googleStatus,googleAuthorize,googleCallback,searchConsole,keywordIdeas,research,evaluateDraft} from './intelligence.js';
 import {listProjects,getProject,saveProject,buildMap,writePage,cleanWebsite} from './growth.js';
 import { dbOpen, serp, page, analyze, generateBrief, renderBrief, scoreDraft, slug } from './core.js';
 const app=express();
@@ -17,6 +19,12 @@ mkdirSync('briefs',{recursive:true});
 const tasks=new Map();
 const cleanKeyword=x=>{if(typeof x!=='string'||!x.trim()||x.length>180)throw Error('Keyword must be 1–180 characters');return x.trim()};
 const findBrief=keyword=>{const files=readdirSync('briefs').filter(f=>f.startsWith(slug(keyword)+'-')&&/^.+-\d{4}-\d{2}-\d{2}\.md$/.test(f)).sort().reverse();if(!files.length)throw Error('No brief found for this keyword. Generate one first.');return {filename:files[0],markdown:readFileSync(join('briefs',files[0]),'utf8')}};
+const googleGuard=(req,res,next)=>{if(!process.env.ADMIN_API_KEY)return res.status(503).json({error:'Set ADMIN_API_KEY on Railway to enable Google integrations'});if(req.get('x-admin-key')!==process.env.ADMIN_API_KEY)return res.status(401).json({error:'Invalid admin key'});next()};
+app.get('/api/google/status',(_req,res)=>res.json({...googleStatus(),adminKeyRequired:true}));
+app.get('/api/google/connect',googleGuard,(req,res)=>{try{res.json({url:googleAuthorize()})}catch(e){res.status(400).json({error:e.message})}});
+app.get('/api/google/callback',async(req,res)=>{try{await googleCallback(req.query.code,req.query.state);res.type('html').send('<h2>Google connected successfully.</h2><p>Return to SEO Content Engine and refresh.</p>')}catch(e){res.status(400).type('text').send('Google connection failed: '+e.message)}});
+app.get('/api/google/search-console',googleGuard,async(req,res)=>{try{const site=String(req.query.site||'');if(!site.startsWith('https://')&&!site.startsWith('sc-domain:'))throw Error('Use exact GSC property URL or sc-domain:domain.com');res.json(await searchConsole(site))}catch(e){res.status(400).json({error:e.message})}});
+app.post('/api/google/keyword-ideas',googleGuard,async(req,res)=>{try{const keywords=(req.body?.keywords||[]).filter(x=>typeof x==='string').slice(0,10);if(!keywords.length)throw Error('Keywords required');res.json({ideas:await keywordIdeas(keywords,String(req.body?.language||'1000'),String(req.body?.geo||'2840'))})}catch(e){res.status(400).json({error:e.message})}});
 app.get('/api/health',(_req,res)=>res.json({ok:true}));
 app.post('/api/brief',async(req,res)=>{
  let keyword;try{keyword=cleanKeyword(req.body?.keyword)}catch(e){return res.status(400).json({error:e.message})}
@@ -67,10 +75,21 @@ app.post('/api/growth/projects',async(req,res)=>{
  (async()=>{try{const map=await buildMap({website,seedKeywords,market,audience});const p=saveProject({id,website,seedKeywords,market,audience,brandFacts,...map});Object.assign(task,{status:'complete',step:'Map ready',project:p})}catch(e){console.error('Growth map failed',e);Object.assign(task,{status:'error',error:e.message})}})();
  }catch(e){res.status(400).json({error:e.message})}
 });
-app.patch('/api/growth/projects/:id', (req,res)=>{try{const p=getProject(req.params.id);const updates=req.body||{};if(typeof updates.brandFacts==='string')p.brandFacts=updates.brandFacts.slice(0,4000);if(Array.isArray(updates.pages)){for(const u of updates.pages){const page=p.pages.find(x=>x.id===u.id);if(page){for(const key of ['title','primaryKeyword','url','status','priority'])if(u[key]!==undefined)page[key]=u[key]}}}res.json(saveProject(p))}catch(e){res.status(400).json({error:e.message})}});
+app.post('/api/growth/projects/:id/pages/:pageId/research',(req,res)=>{
+ let p;try{p=getProject(req.params.id);if(!p.pages.some(x=>x.id===req.params.pageId))throw Error('Page not found')}catch(e){return res.status(404).json({error:e.message})}
+ const task={id:crypto.randomUUID(),status:'running',step:'Benchmarking Google competitors and buyer questions'};tasks.set(task.id,task);res.status(202).json({id:task.id});
+ (async()=>{try{const pg=p.pages.find(x=>x.id===req.params.pageId);const result=await research(pg.primaryKeyword);pg.benchmark=result;pg.quality=pg.content?evaluateDraft(pg.content,result):null;saveProject(p);Object.assign(task,{status:'complete',step:'Research ready',project:p})}catch(e){Object.assign(task,{status:'error',error:e.message})}})();
+});
+app.patch('/api/growth/projects/:id', (req,res)=>{try{const p=getProject(req.params.id);const updates=req.body||{};if(typeof updates.brandFacts==='string')p.brandFacts=updates.brandFacts.slice(0,4000);if(Array.isArray(updates.pages)){for(const u of updates.pages){const page=p.pages.find(x=>x.id===u.id);if(page){if(u.status==='approved'&&(!page.content||!page.editorNotes?.trim()))throw Error('Review and edit content; record human editorial sign-off before approval');for(const key of ['title','primaryKeyword','url','status','priority','content','editorNotes'])if(u[key]!==undefined)page[key]=u[key]}}}res.json(saveProject(p))}catch(e){res.status(400).json({error:e.message})}});
 app.post('/api/growth/projects/:id/pages/:pageId/generate',(req,res)=>{
  let p;try{p=getProject(req.params.id);if(!p.pages.some(x=>x.id===req.params.pageId))throw Error('Page not found')}catch(e){return res.status(404).json({error:e.message})}
  const task={id:crypto.randomUUID(),status:'running',step:'Writing full SEO page'};tasks.set(task.id,task);res.status(202).json({id:task.id});
- (async()=>{try{const page=p.pages.find(x=>x.id===req.params.pageId);const output=await writePage(p,page);page.content=output.markdown;page.seoTitle=output.seoTitle;page.metaDescription=output.metaDescription;page.faq=output.faq;page.verificationNotes=output.verificationNotes;page.status='draft';saveProject(p);Object.assign(task,{status:'complete',step:'Draft ready',project:p})}catch(e){console.error('Content generation failed',e);Object.assign(task,{status:'error',error:e.message})}})();
+ (async()=>{try{const page=p.pages.find(x=>x.id===req.params.pageId);if(!page.benchmark)throw Error('Run competitor research first for this page');const output=await writePage(p,page);page.content=output.markdown;page.seoTitle=output.seoTitle;page.metaDescription=output.metaDescription;page.faq=output.faq;page.verificationNotes=output.verificationNotes;page.quality=output.quality;page.status='draft';saveProject(p);Object.assign(task,{status:'complete',step:'Draft ready',project:p})}catch(e){console.error('Content generation failed',e);Object.assign(task,{status:'error',error:e.message})}})();
 });
+// Railway-only deployment: serve the compiled React application from this Node service.
+// Resolve assets relative to the source file, not DATA_DIR (which points to the persistent volume).
+const appRoot=join(dirname(fileURLToPath(import.meta.url)),'..');
+const frontendDir=join(appRoot,'dist');
+app.use(express.static(frontendDir,{index:false}));
+app.get(/^(?!\/api(?:\/|$)).*/,(_req,res)=>res.sendFile(join(frontendDir,'index.html')));
 const port=Number(process.env.PORT||3001);app.listen(port,'0.0.0.0',()=>console.log(`SEO API listening on ${port}`));
